@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tile Calculator</title>
+<style>
+:root{--bg:#eef1f3;--card:#fff;--t:#17232b;--m:#5f707c;--b:#d3dce2;--ac:#1f7a70;--cut:#f4a261;--gr:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1519;--card:#192127;--t:#e6edf1;--m:#8fa1ac;--b:#2a3640;--ac:#4cc3b3;--gr:#192127}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--t);font-variant-numeric:tabular-nums}
+main{max-width:1100px;margin:0 auto;padding:22px 14px 70px}
+h1{font-size:24px;margin:0 0 2px;letter-spacing:-.01em}
+h2{font-size:17px;margin:28px 0 8px}
+.sub,.muted{color:var(--m)}.muted{font-size:12.5px}.sub{margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--b);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--b);border-radius:6px;padding:6px 8px;min-width:0}
+input[type=text],input[type=number]{width:100px}
+input[type=checkbox]{width:auto}
+:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color:#fff}
+button.x{color:var(--m);padding:4px 8px;border-color:transparent}
+.sp{margin-left:auto}
+.grades{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px}
+.tot{font-size:22px;font-weight:650;margin:2px 0}
+.tag{background:var(--ac);color:#fff;border-radius:99px;padding:1px 9px;font-size:12px;margin-left:4px}
+.ar{margin-top:10px;padding-top:8px;border-top:1px solid var(--b)}
+.pl{border:0;padding:0;margin-top:4px;background:none;cursor:zoom-in;display:block}
+.sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+dialog{max-width:min(720px,96vw);width:100%;background:var(--card);color:var(--t);border:1px solid var(--b);border-radius:10px;padding:14px}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+@media print{.noprint{display:none!important}body{background:#fff}}
+</style>
+</head>
+<body>
+<main>
+<h1>Tile calculator</h1>
+<p class="sub">Count whole tiles, compare prices and see each layout. Cut pieces come from whole tiles, and offcuts are reused where they fit.</p>
+<div class="card row noprint" id="set"></div>
+<h2>Areas</h2><div id="areas"></div>
+<h2>Tiles and grades</h2><div id="tiles"></div>
+<h2>Options to compare</h2><div id="opts"></div>
+<h2>Comparison</h2><div id="cmp"></div>
+<dialog id="dlg"></dialog>
+</main>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const U={mm:1/25.4,cm:1/2.54,m:100/2.54,in:1,ft:12},PAL=['#2a9d8f','#3a86a8','#8e7dbe','#d1654f','#6a994e','#c08497'];
+const KEY='tilecalc.v1';
+function defaults(){return{n:20,cur:'Rs',buf:5,disp:'ftin',rot:true,sort:'cost',
+areas:[{id:1,name:'Living Area 1',L:"30'",W:"12'8\"",u:'ft'},{id:2,name:'Living Area 2',L:"22'",W:"9'3\"",u:'ft'},{id:3,name:'Room',L:"12'",W:"10'",u:'ft'}],
+tiles:[{id:1,w:2,h:2,u:'ft',grades:[{id:1,name:'A',price:1200},{id:2,name:'B',price:900}]},{id:2,w:4,h:2,u:'ft',grades:[{id:3,name:'A',price:2580}]},{id:4,w:32,h:32,u:'in',grades:[{id:5,name:'Standard',price:3700}]}],
+opts:[{id:1,pick:{1:'1:1',2:'1:1',3:'1:1'}},{id:2,pick:{1:'1:2',2:'1:2',3:'1:2'}},{id:3,pick:{1:'4:5',2:'1:1',3:'1:2'}}]}}
+let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}S=S||defaults();
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}},nid=()=>S.n++;
+// ---------- length parsing and formatting ----------
+function parseLen(s,du){s=String(s).trim();const re=/(\d*\.?\d+)\s*(mm|cm|m(?![a-z])|feet|foot|ft|inches|inch|in|'|")?/gi;let m,t=0,n=0,ft=false;
+while(m=re.exec(s)){let u=(m[2]||'').toLowerCase(),v=+m[1];
+if(!u)u=ft?'in':du;else if(u=="'"||u=='feet'||u=='foot')u='ft';else if(u=='"'||u=='inch'||u=='inches')u='in';
+ft=u=='ft';t+=v*U[u];n++}return n&&t>0?t:NaN}
+const r1=x=>+x.toFixed(1);
+function fmt(i){const d=S.disp;if(d=='in')return r1(i)+'"';if(d=='cm')return r1(i*2.54)+' cm';if(d=='mm')return Math.round(i*25.4)+' mm';if(d=='m')return (i*.0254).toFixed(2)+' m';
+let f=Math.floor(i/12+1e-9),r=r1(i-f*12);if(r>=12){f++;r=0}return (f?f+"'":'')+(r||!f?r+'"':'')}
+const money=n=>S.cur+' '+Math.round(n).toLocaleString('en-US');
+const tIn=t=>[t.w*U[t.u],t.h*U[t.u]],tName=t=>`${t.w} × ${t.h} ${t.u}`;
+const tile=id=>S.tiles.find(t=>t.id==id);
+const dims=a=>({W:parseLen(a.L,a.u),H:parseLen(a.W,a.u)});
+// ---------- layout engine ----------
+function pack(ps,tw,th){const free=[];let tiles=0;ps.sort((a,b)=>b[0]*b[1]-a[0]*a[1]);
+for(const[w,h]of ps){let best=-1,bo=0,ba=1e18;
+free.forEach((f,i)=>{for(const o of S.rot?[0,1]:[0]){const pw=o?h:w,ph=o?w:h;if(pw<=f[0]+.01&&ph<=f[1]+.01&&f[0]*f[1]<ba){ba=f[0]*f[1];best=i;bo=o}}});
+let f;if(best<0){tiles++;f=[tw,th];bo=0}else f=free.splice(best,1)[0];
+const pw=bo?h:w,ph=bo?w:h,rw=f[0]-pw,rh=f[1]-ph,A=[[rw,ph],[f[0],rh]],B=[[rw,f[1]],[pw,rh]],mx=a=>Math.max(...a.map(r=>r[0]*r[1]));
+for(const r of mx(A)>=mx(B)?A:B)if(r[0]>.5&&r[1]>.5)free.push(r)}return tiles}
+function analyze(W,H,tw,th){const e=.01,cols=Math.ceil((W-e)/tw),rows=Math.ceil((H-e)/th),wr=W-(cols-1)*tw,hr=H-(rows-1)*th,cc=wr<tw-e,rc=hr<th-e,fc=cols-cc,fr=rows-rc;
+const g=[];if(rc&&fc>0)g.push({n:fc,w:tw,h:hr});if(cc&&fr>0)g.push({n:fr,w:wr,h:th});if(cc&&rc)g.push({n:1,w:wr,h:hr});
+const ps=[];g.forEach(x=>{for(let i=0;i<x.n;i++)ps.push([x.w,x.h])});
+const full=fc*fr;return{tw,th,cols,rows,full,groups:g,cuts:ps.length,tiles:full+pack(ps,tw,th)}}
+const memo={};
+function lay(W,H,tw,th){const k=[W,H,tw,th,S.rot].join();if(memo[k])return memo[k];let best;
+for(const[a,b]of tw==th?[[tw,th]]:[[tw,th],[th,tw]]){const L=analyze(W,H,a,b);if(!best||L.tiles<best.tiles||(L.tiles==best.tiles&&L.cuts<best.cuts))best=L}return memo[k]=best}
+function plan(L,W,H,col,op,sc,big){const mx=big?48:1,my=big?30:1,w=W*sc,h=H*sc,vw=w+mx+(big?8:1),vh=h+my+(big?8:1),f=x=>x.toFixed(1);
+let s=`<svg viewBox="0 0 ${f(vw)} ${f(vh)}" width="${Math.round(vw)}" style="max-width:100%;height:auto" role="img">`;
+for(let j=0;j<L.rows;j++)for(let i=0;i<L.cols;i++){const x0=i*L.tw,y0=j*L.th,x1=Math.min(x0+L.tw,W),y1=Math.min(y0+L.th,H),c=x1-x0<L.tw-.01||y1-y0<L.th-.01;
+s+=`<rect x="${f(mx+x0*sc)}" y="${f(my+y0*sc)}" width="${f((x1-x0)*sc)}" height="${f((y1-y0)*sc)}" fill="${c?'var(--cut)':col}"${c?'':` fill-opacity="${op}"`} stroke="var(--gr)" stroke-width="${big?1:.5}"/>`}
+s+=`<rect x="${mx}" y="${my}" width="${f(w)}" height="${f(h)}" fill="none" stroke="var(--t)" stroke-width="${big?1.5:1}"/>`;
+if(big){const tk='stroke="var(--t)" stroke-width=".8"',tx='font-size="10" fill="var(--t)" text-anchor="middle"';
+s+=`<line x1="${mx}" y1="${my-12}" x2="${f(mx+w)}" y2="${my-12}" ${tk}/><line x1="${mx-12}" y1="${my}" x2="${mx-12}" y2="${f(my+h)}" ${tk}/>`;
+for(let i=0;i<=L.cols;i++){const a=i*L.tw,b=Math.min(a+L.tw,W),x=mx+Math.min(a,W)*sc;s+=`<line x1="${f(x)}" y1="${my-15}" x2="${f(x)}" y2="${my-9}" ${tk}/>`;
+if(i<L.cols&&(b-a)*sc>=34)s+=`<text x="${f(mx+(a+b)/2*sc)}" y="${my-17}" ${tx}>${fmt(b-a)}</text>`}
+for(let j=0;j<=L.rows;j++){const a=j*L.th,b=Math.min(a+L.th,H),y=my+Math.min(a,H)*sc;s+=`<line x1="${mx-15}" y1="${f(y)}" x2="${mx-9}" y2="${f(y)}" ${tk}/>`;
+if(j<L.rows&&(b-a)*sc>=34){const cy=my+(a+b)/2*sc;s+=`<text transform="translate(${mx-17} ${f(cy)}) rotate(-90)" ${tx}>${fmt(b-a)}</text>`}}}
+return s+'</svg>'}
+// ---------- options ----------
+const combos=()=>S.tiles.flatMap(t=>t.grades.map(g=>t.id+':'+g.id));
+const parts=k=>{const[a,b]=k.split(':');const t=tile(a);return t&&{t,g:t.grades.find(g=>g.id==b)}};
+function ensure(){const c=combos();S.opts.forEach(o=>S.areas.forEach(a=>{if(!c.includes(o.pick[a.id]))o.pick[a.id]=c[0]}))}
+function evalOpt(o){let cost=0,tiles=0,mat=0,sq=0,cb=0,rows=[];
+for(const a of S.areas){const{W,H}=dims(a),p=parts(o.pick[a.id]);if(!p||!p.g||isNaN(W)||isNaN(H))return null;
+const[tw,th]=tIn(p.t),L=lay(W,H,tw,th),c=L.tiles*p.g.price,q=Math.ceil(L.tiles*(1+S.buf/100)-1e-9);
+cost+=c;tiles+=L.tiles;mat+=L.tiles*tw*th/144;sq+=W*H/144;cb+=q*p.g.price;rows.push({a,p,L,c,q,W,H})}
+return{cost,tiles,cb,waste:sq?(mat-sq)/sq*100:0,rows}}
+// ---------- render ----------
+const unitOpts=u=>Object.keys(U).map(k=>`<option${k==u?' selected':''}>${k}</option>`).join('');
+const sel=(p,v,arr)=>`<select data-p="${p}">${arr.map(([k,l])=>`<option value="${k}"${k==v?' selected':''}>${l}</option>`).join('')}</select>`;
+function rSet(){$('#set').innerHTML=`<label>Currency <input type="text" style="width:60px" data-p="cur" value="${esc(S.cur)}"></label>
+<label>Extra for breakage % <input type="number" min="0" data-n="1" data-p="buf" value="${S.buf}" style="width:70px"></label>
+<label>Show sizes in ${sel('disp',S.disp,[['ftin','feet and inches'],['in','inches'],['cm','cm'],['mm','mm'],['m','metres']])}</label>
+<label><input type="checkbox" data-p="rot"${S.rot?' checked':''}> Reuse offcuts turned 90°</label>
+<span class="sp"></span><button data-a="print">Print</button><button data-a="reset">Reset</button>`}
+function rA(){$('#areas').innerHTML=S.areas.map((a,i)=>`<div class="card row"><input type="text" style="width:140px" data-p="areas.${i}.name" value="${esc(a.name)}" aria-label="Area name">
+<label class="muted">Length <input type="text" data-p="areas.${i}.L" value="${esc(a.L)}"></label><label class="muted">Width <input type="text" data-p="areas.${i}.W" value="${esc(a.W)}"></label>
+<select data-p="areas.${i}.u" aria-label="Unit for plain numbers">${unitOpts(a.u)}</select><span class="muted" data-h="${i}"></span><button class="x sp" data-a="delA" data-i="${i}" aria-label="Remove area">Remove</button></div>`).join('')+
+`<button class="p" data-a="addA">Add area</button> <span class="muted">Type sizes like 12'8", 3.5m, 350 cm, 4200 mm or 12 ft 8 in. A plain number uses the unit shown.</span>`;hints()}
+function hints(){S.areas.forEach((a,i)=>{const e=document.querySelector(`[data-h="${i}"]`),{W,H}=dims(a);if(e)e.textContent=isNaN(W)||isNaN(H)?'Enter a valid size':`${fmt(W)} × ${fmt(H)}, ${(W*H/144).toFixed(1)} sq ft`});
+S.tiles.forEach((t,i)=>{const e=document.querySelector(`[data-tt="${i}"]`);if(e)e.textContent=tName(t)+` (${(t.w*U[t.u]*t.h*U[t.u]/144).toFixed(2)} sq ft each)`})}
+const PRE=[['2,2,ft','2 × 2 ft'],['2.5,2.5,ft','2.5 × 2.5 ft'],['4,2,ft','4 × 2 ft'],['32,32,in','32 × 32 in'],['600,600,mm','600 × 600 mm'],['800,800,mm','800 × 800 mm'],['600,1200,mm','600 × 1200 mm'],['300,300,mm','300 × 300 mm'],['custom','Custom size']];
+function rT(){$('#tiles').innerHTML=S.tiles.map((t,i)=>`<div class="card"><div class="row"><b data-tt="${i}"></b><span class="muted">Size</span>
+<input type="number" step="any" data-n="1" data-p="tiles.${i}.w" value="${t.w}" style="width:80px"> × <input type="number" step="any" data-n="1" data-p="tiles.${i}.h" value="${t.h}" style="width:80px">
+<select data-p="tiles.${i}.u">${unitOpts(t.u)}</select><button class="x sp" data-a="delT" data-i="${i}">Remove tile</button></div>
+<div class="grades">${t.grades.map((g,j)=>`<div class="row"><input type="text" style="width:130px" data-p="tiles.${i}.grades.${j}.name" value="${esc(g.name)}" aria-label="Grade name">
+<label class="muted">Price per tile <input type="number" min="0" step="any" data-n="1" data-p="tiles.${i}.grades.${j}.price" value="${g.price}"></label>
+${t.grades.length>1?`<button class="x" data-a="delG" data-i="${i}" data-j="${j}">Remove grade</button>`:''}</div>`).join('')}
+<div><button data-a="addG" data-i="${i}">Add grade</button></div></div></div>`).join('')+
+`<div class="row"><select id="pre">${PRE.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button class="p" data-a="addT">Add tile size</button></div>`;hints()}
+function rO(){ensure();const c=combos(),lab=k=>{const p=parts(k);return `${tName(p.t)}, ${p.g.name} (${money(p.g.price)})`};
+$('#opts').innerHTML=S.opts.map((o,i)=>`<div class="card row"><b>Option ${i+1}</b>${S.areas.map(a=>`<label class="muted">${esc(a.name)} <select data-p="opts.${i}.pick.${a.id}">${c.map(k=>`<option value="${k}"${o.pick[a.id]==k?' selected':''}>${esc(lab(k))}</option>`).join('')}</select></label>`).join('')}
+<span class="sp"></span><button class="x" data-a="dupO" data-i="${i}">Copy</button><button class="x" data-a="delO" data-i="${i}">Remove</button></div>`).join('')+
+`<div class="row"><button class="p" data-a="addO">Add option</button><button data-a="allO">Create every combination</button></div>`}
+function rC(){const ev=S.opts.map((o,i)=>({i,r:evalOpt(o)}));
+if(!ev.length)return $('#cmp').innerHTML='<p class="muted">Add an option to compare.</p>';
+if(ev.some(e=>!e.r))return $('#cmp').innerHTML='<p class="muted">Enter a valid length and width for every area to see the comparison.</p>';
+const low=Math.min(...ev.map(e=>e.r.cost)),lw=Math.min(...ev.map(e=>e.r.waste)),sk={cost:e=>e.r.cost,waste:e=>e.r.waste,tiles:e=>e.r.tiles,order:e=>e.i};
+ev.sort((a,b)=>sk[S.sort](a)-sk[S.sort](b));
+const ds=S.areas.map(dims),sc=300/Math.max(...ds.map(d=>d.W));
+$('#cmp').innerHTML=`<div class="row noprint" style="margin-bottom:8px"><label>Sort by ${sel('sort',S.sort,[['cost','lowest cost'],['waste','least waste'],['tiles','fewest tiles'],['order','option number']])}</label></div>
+<div class="row muted" style="margin-bottom:8px">${S.tiles.map((t,i)=>`<span><span class="sw" style="background:${PAL[i%6]}"></span>${tName(t)}</span>`).join('')}<span><span class="sw" style="background:var(--cut)"></span>cut tile</span><span>Lighter shade = later grade. Select a plan to enlarge it.</span></div>
+<div class="cards">${ev.map(({i,r})=>`<div class="card"><div class="row"><b>Option ${i+1}</b>${r.cost==low?'<span class="tag">Lowest cost</span>':''}${r.waste<=lw+1e-9?'<span class="tag">Least waste</span>':''}</div>
+<div class="tot">${money(r.cost)}</div><div class="muted">${r.tiles} whole tiles, ${r.waste.toFixed(1)}% waste${r.cost>low?`, ${money(r.cost-low)} above lowest`:''}.<br>With ${S.buf}% extra: ${money(r.cb)} for ${r.rows.reduce((s,x)=>s+x.q,0)} tiles.</div>
+${r.rows.map(x=>{const ti=S.tiles.indexOf(x.p.t),gi=x.p.t.grades.indexOf(x.p.g);return `<div class="ar"><div><b>${esc(x.a.name)}</b>, ${tName(x.p.t)} ${esc(x.p.g.name)}</div><div class="muted">${x.L.tiles} tiles, ${money(x.c)}</div>
+<button class="pl" data-d="${i}:${x.a.id}" aria-label="Enlarge plan">${plan(x.L,x.W,x.H,PAL[ti%6],Math.max(.5,1-.2*gi),sc,false)}</button></div>`}).join('')}</div>`).join('')}</div>`}
+function detail(k){const[oi,aid]=k.split(':'),r=evalOpt(S.opts[oi]),x=r.rows.find(y=>y.a.id==aid),L=x.L,ti=S.tiles.indexOf(x.p.t),gi=x.p.t.grades.indexOf(x.p.g);
+const sc=Math.min(620/x.W,420/x.H),mat=L.tiles*L.tw*L.th/144,sq=x.W*x.H/144;
+$('#dlg').innerHTML=`<div class="row"><b>${esc(x.a.name)}, option ${+oi+1}</b><span class="muted">${fmt(x.W)} × ${fmt(x.H)}</span><form method="dialog" class="sp"><button>Close</button></form></div>
+<div style="margin:8px 0">${plan(L,x.W,x.H,PAL[ti%6],Math.max(.5,1-.2*gi),sc,true)}</div>
+<p class="muted" style="margin:0">Tile ${tName(x.p.t)} ${esc(x.p.g.name)} laid ${fmt(L.tw)} × ${fmt(L.th)} (${L.cols} × ${L.rows} grid). ${L.full} full tiles.
+${L.groups.length?'Cut pieces: '+L.groups.map(g=>`${g.n} × ${fmt(g.w)} by ${fmt(g.h)}`).join(', ')+`, made from ${L.tiles-L.full} whole tiles.`:'No cutting needed.'}<br>
+<b>${L.tiles} whole tiles, ${money(x.c)}</b>, ${((mat-sq)/sq*100).toFixed(1)}% waste. Order ${x.q} with ${S.buf}% extra.</p>`;$('#dlg').showModal()}
+const all=()=>{rSet();rA();rT();rO();rC()};
+// ---------- events ----------
+function setP(p,v){const k=p.split('.');let o=S;k.slice(0,-1).forEach(x=>o=o[x]);o[k.at(-1)]=v}
+document.addEventListener('change',e=>{const t=e.target,p=t.dataset.p;if(!p)return;
+if(p=='rot')for(const k in memo)delete memo[k];
+setP(p,t.type=='checkbox'?t.checked:t.dataset.n?(parseFloat(t.value)||0):t.value);save();hints();
+if(p.split('.')[0]!='opts'&&p!='sort')rO();rC()});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-a],[data-d]');if(!b)return;if(b.dataset.d)return detail(b.dataset.d);
+const a=b.dataset.a,i=+b.dataset.i,j=+b.dataset.j,c=combos();
+if(a=='print')return print();
+if(a=='reset'){if(!confirm('Reset everything to the example?'))return;S=defaults()}
+if(a=='addA')S.areas.push({id:nid(),name:'Area '+(S.areas.length+1),L:'',W:'',u:'ft'});
+if(a=='delA')S.areas.splice(i,1);
+if(a=='addT'){const v=$('#pre').value.split(',');S.tiles.push({id:nid(),w:+v[0]||2,h:+v[1]||2,u:v[2]||'ft',grades:[{id:nid(),name:'A',price:0}]})}
+if(a=='delT'&&S.tiles.length>1)S.tiles.splice(i,1);
+if(a=='addG')S.tiles[i].grades.push({id:nid(),name:'Grade '+(S.tiles[i].grades.length+1),price:0});
+if(a=='delG')S.tiles[i].grades.splice(j,1);
+if(a=='addO')S.opts.push({id:nid(),pick:{}});
+if(a=='dupO')S.opts.push({id:nid(),pick:{...S.opts[i].pick}});
+if(a=='delO')S.opts.splice(i,1);
+if(a=='allO'){const n=Math.pow(c.length,S.areas.length);if(n>300){alert('That would create '+n+' options. Remove some tiles or areas first.');return}
+if(S.opts.length&&!confirm('Replace the current options with all '+n+' combinations?'))return;
+let L=[{}];S.areas.forEach(ar=>{L=L.flatMap(o=>c.map(k=>({...o,[ar.id]:k})))});S.opts=L.map(p=>({id:nid(),pick:p}))}
+save();all()});
+all();
+</script>
+</body>
+</html>
